@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HarnessPet</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main id="pet-stage" aria-live="polite">
+      <section id="bubble" class="bubble is-hidden" role="status">
+        <div id="bubble-text" class="bubble-content" tabindex="0"></div>
+        <div class="bubble-actions">
+          <button id="bubble-reply" type="button">继续提问</button>
+          <button id="bubble-dismiss" type="button">收起</button>
+        </div>
+      </section>
+
+      <form id="composer" class="composer is-hidden">
+        <label class="sr-only" for="prompt">Ask DeepSeek Harness</label>
+        <textarea id="prompt" maxlength="4000" rows="3" placeholder="问 Harness…（Enter 发送）"></textarea>
+        <div class="composer-actions">
+          <button id="new-conversation" type="button">新对话</button>
+          <span id="status-label">就绪</span>
+          <button id="quit" type="button" aria-label="退出 HarnessPet">退出</button>
+          <button id="send" type="submit">发送</button>
+        </div>
+      </form>
+
+      <div id="pet-wrap" class="pet-wrap" aria-label="HarnessPet 桌宠">
+        <canvas id="pet-canvas" width="1" height="1"></canvas>
+        <div id="thinking-dots" class="thinking-dots is-hidden" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+    </main>
+    <script type="module" src="/main.ts"></script>
+  </body>
+</html>

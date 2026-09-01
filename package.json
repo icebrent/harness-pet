@@ -1,0 +1,37 @@
+{
+  "name": "harness-pet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A lightweight Windows desktop pet powered by DeepSeek Harness.",
+  "type": "module",
+  "main": "out/main/main.js",
+  "scripts": {
+    "process:sprites": "tsx scripts/process-sprites.ts",
+    "predev": "pnpm process:sprites",
+    "dev": "electron-vite dev",
+    "build": "pnpm process:sprites && electron-vite build",
+    "preview": "electron-vite preview",
+    "pretypecheck": "pnpm process:sprites",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "pretest": "pnpm process:sprites",
+    "test": "vitest run",
+    "harness:smoke": "tsx scripts/harness-smoke.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-sdk-client": "link:../deepseek-harness/packages/sdk/client"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^38.0.0",
+    "electron-vite": "^4.0.0",
+    "sharp": "^0.34.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "packageManager": "pnpm@11.21.0"
+}
