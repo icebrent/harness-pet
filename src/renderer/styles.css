@@ -18,7 +18,7 @@ html, body {
   user-select: none;
 }
 
-button, textarea, select { font: inherit; }
+button, textarea { font: inherit; }
 
 #pet-stage {
   position: relative;
@@ -189,33 +189,7 @@ button, textarea, select { font: inherit; }
 .composer-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
   margin-top: 8px;
-}
-
-.character-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #536d96;
-  font-size: 12px;
-}
-
-#character-select {
-  max-width: 126px;
-  border: 1px solid #c4d7f6;
-  border-radius: 8px;
-  padding: 4px 22px 4px 7px;
-  outline: none;
-  color: #214174;
-  background: #f5f9ff;
-  cursor: pointer;
-}
-
-#character-select:focus-visible {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgb(41 121 255 / 12%);
 }
 
 .composer-actions button {
@@ -231,8 +205,7 @@ button, textarea, select { font: inherit; }
 #send { color: white; background: linear-gradient(135deg, var(--blue), var(--cyan)); }
 #send:hover { background: linear-gradient(135deg, #1768ee, #19b6f7); }
 #send:disabled,
-#new-conversation:disabled,
-#character-select:disabled { cursor: wait; opacity: .55; }
+#new-conversation:disabled { cursor: wait; opacity: .55; }
 #quit { margin-left: auto; }
 #status-label { font-size: 12px; color: #667ca2; }
 

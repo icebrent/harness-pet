@@ -20,6 +20,16 @@ const api: HarnessPetApi = {
     ipcRenderer.on('pet:movement', wrapped)
     return () => ipcRenderer.off('pet:movement', wrapped)
   },
+  onCharacterChanged: (listener: (status: HarnessStatus) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: HarnessStatus): void => listener(status)
+    ipcRenderer.on('character:changed', wrapped)
+    return () => ipcRenderer.off('character:changed', wrapped)
+  },
+  onNewConversation: (listener: (status: HarnessStatus) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: HarnessStatus): void => listener(status)
+    ipcRenderer.on('conversation:new', wrapped)
+    return () => ipcRenderer.off('conversation:new', wrapped)
+  },
 }
 
 contextBridge.exposeInMainWorld('harnessPet', api)

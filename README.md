@@ -1,6 +1,6 @@
 # HarnessPet
 
-HarnessPet 是一个 Windows 优先的轻量 Electron 桌宠。它使用透明、无边框、置顶窗口展示角色；用户点击角色或按 `Ctrl+Shift+Space` 唤出输入框，消息通过官方 DeepSeek Harness TypeScript SDK 发送给本机 Harness runtime，最终回答显示为角色头顶气泡。
+HarnessPet 是一个 Windows 优先的轻量 Electron 桌宠。它使用透明、无边框、置顶且不占用 taskbar 的窗口展示角色；用户点击角色或按 `Ctrl+Shift+Space` 唤出输入框，消息通过官方 DeepSeek Harness TypeScript SDK 发送给本机 Harness runtime，最终回答显示为角色头顶气泡。Windows notification area 中的 Tray 提供找回桌宠、新对话、角色切换、移动暂停与退出等低频控制。
 
 当前版本实现桌宠与 Harness 连续对话的核心体验，并提供两种启动时确定的显示模式；不包含数据库、账号、Web 服务或自建 Agent loop。
 
@@ -56,7 +56,9 @@ HarnessPet.exe --mode=kanban
 
 未知或非法 `--mode` 会输出一条简短 warning 并安全回退到 `chibi`。mode 只在 Electron main 启动时解析，运行过程中不切换。
 
-`pnpm dev` 会先重复执行素材处理脚本，再启动 Electron。点击角色可打开输入框；拖动角色可移动窗口；`Ctrl+Shift+Space` 可从任意位置唤出输入框。Chibi mode 的角色选择器会立即切换视觉素材、记住选择并创建新的 Harness session，但不会重启 Electron 或 Harness runtime；未发送的输入内容会保留。Kanban mode 隐藏角色选择器并固定使用 `qwen-purple`。请求运行期间角色选择器和新对话按钮会暂时禁用。`New conversation` 保持当前角色不变并生成新的 session id。两种新 session 都会在下一条真实用户消息中重新引导当前角色 persona，之后的连续提问只发送原始用户输入。
+`pnpm dev` 会先重复执行素材处理脚本，再启动 Electron。点击角色可打开输入框；拖动角色可移动窗口；`Ctrl+Shift+Space` 会先从当前鼠标所在显示器找回桌宠，再打开输入框。Tray 左键只找回并置顶桌宠，若窗口仍在任一显示器的 `workArea` 内则保留用户拖放的位置；off-screen 时才移动到鼠标所在显示器右下方且避开 taskbar。
+
+Chibi mode 的 Tray 角色子菜单从共享 character registry 生成。切换会立即替换视觉素材、记住选择并创建新的 Harness session，但不会重启 Electron 或 Harness runtime；未发送的输入内容会保留。请求运行期间 Tray 角色子菜单和新对话会暂时禁用。Tray 还可暂停或恢复随机移动，暂停不影响手动拖动。Kanban mode 固定使用 `qwen-purple`，因此 Tray 不显示角色与移动菜单。Renderer 不再常驻显示角色 selector；`New conversation` 保持当前角色不变并生成新的 session id。两种新 session 都会在下一条真实用户消息中重新引导当前角色 persona，之后的连续提问只发送原始用户输入。
 
 ## 检查与验证
 

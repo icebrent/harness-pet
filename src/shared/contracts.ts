@@ -32,4 +32,6 @@ export interface HarnessPetApi {
   quit(): void
   onShowComposer(listener: () => void): () => void
   onMovement(listener: (moving: boolean) => void): () => void
+  onCharacterChanged(listener: (status: HarnessStatus) => void): () => void
+  onNewConversation(listener: (status: HarnessStatus) => void): () => void
 }

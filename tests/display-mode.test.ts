@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { parseDisplayMode, randomMovementEnabled } from '../src/shared/display-mode.js'
+import {
+  autonomousMovementAllowed,
+  parseDisplayMode,
+  randomMovementEnabled,
+} from '../src/shared/display-mode.js'
 
 describe('display mode', () => {
   it.each([
@@ -22,6 +26,13 @@ describe('display mode', () => {
   it('only enables random desktop movement in chibi mode', () => {
     expect(randomMovementEnabled('chibi')).toBe(true)
     expect(randomMovementEnabled('kanban')).toBe(false)
+  })
+
+  it('pauses and resumes autonomous movement without enabling it in Kanban mode', () => {
+    expect(autonomousMovementAllowed('chibi', false, false)).toBe(true)
+    expect(autonomousMovementAllowed('chibi', false, true)).toBe(false)
+    expect(autonomousMovementAllowed('chibi', true, false)).toBe(false)
+    expect(autonomousMovementAllowed('kanban', false, false)).toBe(false)
   })
 
   it('keeps a forwarding separator in the pnpm dev script', async () => {

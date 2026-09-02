@@ -28,7 +28,6 @@ const newConversationButton = document.querySelector<HTMLButtonElement>('#new-co
 const quitButton = document.querySelector<HTMLButtonElement>('#quit')!
 const statusLabel = document.querySelector<HTMLElement>('#status-label')!
 const thinkingDots = document.querySelector<HTMLElement>('#thinking-dots')!
-const characterSelect = document.querySelector<HTMLSelectElement>('#character-select')!
 
 const sprites = new Map<string, Map<SpriteName, HTMLImageElement>>()
 const kanbanExpressions = new Map<KanbanExpressionName, HTMLImageElement>()
@@ -37,7 +36,6 @@ let currentCharacterId: string = DEFAULT_CHARACTER_ID
 let currentSprite: SpriteName = 'idle'
 let currentKanbanExpression: KanbanExpressionName = 'idle'
 let currentState: PetState = 'idle'
-let characterTransitioning = false
 let walkingFrame = 0
 let walkingTimer: number | undefined
 let answerTimer: number | undefined
@@ -79,7 +77,6 @@ async function loadSprites(): Promise<void> {
     }))
     sprites.set(character.id, characterSprites)
   }
-  populateCharacterSelect()
   drawSprite('idle')
   scheduleSleep()
 }
@@ -119,19 +116,8 @@ function restoreCharacterId(): string {
   }
 }
 
-function populateCharacterSelect(): void {
-  characterSelect.replaceChildren(...characterRegistry.map((character) => {
-    const option = document.createElement('option')
-    option.value = character.id
-    option.textContent = character.displayName
-    return option
-  }))
-  characterSelect.value = getCharacter(currentCharacterId).id
-}
-
 function persistCharacterId(): void {
   if (displayMode === 'kanban') return
-  characterSelect.value = currentCharacterId
   try {
     window.localStorage.setItem(CHARACTER_STORAGE_KEY, currentCharacterId)
   } catch {
@@ -139,41 +125,16 @@ function persistCharacterId(): void {
   }
 }
 
-async function switchCharacter(characterId: string): Promise<void> {
-  if (displayMode === 'kanban') return
-  if (currentState === 'thinking' || characterTransitioning) return
-  const previousCharacterId = currentCharacterId
-  const nextCharacter = getCharacter(characterId)
-  if (nextCharacter.id === previousCharacterId) return
-
-  currentCharacterId = nextCharacter.id
-  characterSelect.value = currentCharacterId
-  drawSprite(currentSprite)
-  characterTransitioning = true
-  setConversationControlsDisabled(true)
-  try {
-    const status = await window.harnessPet.selectCharacter(currentCharacterId)
-    currentCharacterId = status.characterId
-    persistCharacterId()
-    clearAnswerTimer()
-    bubble.classList.add('is-hidden')
-    setState('idle')
-    statusLabel.textContent = `${getCharacter(currentCharacterId).displayName} · 新对话`
-  } catch (error) {
-    currentCharacterId = previousCharacterId
-    characterSelect.value = currentCharacterId
-    drawSprite(currentSprite)
-    statusLabel.textContent = error instanceof Error ? error.message : 'Unable to switch character'
-  } finally {
-    characterTransitioning = false
-    setConversationControlsDisabled(false)
-  }
-}
-
 function setConversationControlsDisabled(disabled: boolean): void {
   sendButton.disabled = disabled
   newConversationButton.disabled = disabled
-  characterSelect.disabled = disabled
+}
+
+function syncMotionPauseAfterConversationReset(): void {
+  if (displayMode === 'chibi') {
+    window.harnessPet.setMotionPaused(composerVisible || wakeTimer !== undefined)
+  }
+  updatePassthroughFromPointer()
 }
 
 function setState(state: PetState): void {
@@ -358,7 +319,7 @@ function resetSleepClock(): void {
 composer.addEventListener('submit', async (event) => {
   event.preventDefault()
   const prompt = promptInput.value.trim()
-  if (!prompt || currentState === 'thinking' || characterTransitioning) return
+  if (!prompt || currentState === 'thinking') return
 
   setConversationControlsDisabled(true)
   promptInput.disabled = true
@@ -391,7 +352,7 @@ promptInput.addEventListener('keydown', (event) => {
 })
 
 newConversationButton.addEventListener('click', async () => {
-  if (currentState === 'thinking' || characterTransitioning) return
+  if (currentState === 'thinking') return
   setConversationControlsDisabled(true)
   try {
     await window.harnessPet.newConversation()
@@ -399,6 +360,7 @@ newConversationButton.addEventListener('click', async () => {
     clearAnswerTimer()
     bubble.classList.add('is-hidden')
     setState('idle')
+    syncMotionPauseAfterConversationReset()
     statusLabel.textContent = 'New conversation started'
     promptInput.focus()
   } catch (error) {
@@ -407,8 +369,6 @@ newConversationButton.addEventListener('click', async () => {
     setConversationControlsDisabled(false)
   }
 })
-
-characterSelect.addEventListener('change', () => void switchCharacter(characterSelect.value))
 
 bubbleReplyButton.addEventListener('click', showComposer)
 bubbleDismissButton.addEventListener('click', dismissBubble)
@@ -475,13 +435,32 @@ window.harnessPet.onMovement((moving) => {
   if (displayMode === 'chibi') moving ? startWalking() : stopWalking()
 })
 
+window.harnessPet.onCharacterChanged((status) => {
+  if (displayMode === 'kanban') return
+  currentCharacterId = getCharacter(status.characterId).id
+  persistCharacterId()
+  drawSprite(currentSprite)
+  clearAnswerTimer()
+  bubble.classList.add('is-hidden')
+  setState('idle')
+  syncMotionPauseAfterConversationReset()
+  statusLabel.textContent = `${getCharacter(currentCharacterId).displayName} · 新对话`
+})
+
+window.harnessPet.onNewConversation(() => {
+  clearAnswerTimer()
+  bubble.classList.add('is-hidden')
+  setState('idle')
+  syncMotionPauseAfterConversationReset()
+  statusLabel.textContent = 'New conversation started'
+})
+
 async function initialize(): Promise<void> {
   setConversationControlsDisabled(true)
   displayMode = await window.harnessPet.getDisplayMode()
   document.body.dataset.displayMode = displayMode
   currentCharacterId = displayMode === 'kanban' ? KANBAN_CHARACTER_ID : restoreCharacterId()
   if (displayMode === 'kanban') {
-    characterSelect.closest('.character-picker')?.classList.add('is-hidden')
     petWrap.setAttribute('aria-label', 'Qwen Purple Kanban desktop pet')
   }
   await loadSprites()

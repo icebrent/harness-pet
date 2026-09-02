@@ -48,6 +48,10 @@ export class HarnessBridge {
     }
   }
 
+  isRunActive(): boolean {
+    return this.activeRun
+  }
+
   async ask(rawPrompt: string): Promise<HarnessAnswer> {
     if (this.closed) throw new Error('Harness runtime has already been closed.')
     if (this.activeRun) throw new Error('Harness is already handling a request.')

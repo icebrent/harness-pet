@@ -24,3 +24,11 @@ export function parseDisplayMode(
 export function randomMovementEnabled(mode: DisplayMode): boolean {
   return mode === 'chibi'
 }
+
+export function autonomousMovementAllowed(
+  mode: DisplayMode,
+  rendererPaused: boolean,
+  userPaused: boolean,
+): boolean {
+  return randomMovementEnabled(mode) && !rendererPaused && !userPaused
+}

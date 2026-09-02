@@ -122,10 +122,12 @@ describe('HarnessBridge', () => {
 
     const pending = bridge.ask('working')
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+    expect(bridge.isRunActive()).toBe(true)
     expect(() => bridge.selectCharacter('gpt-white')).toThrow('Wait for the current Harness request')
     expect(bridge.status().characterId).toBe('deepseek-blue')
     finishRun()
     await pending
+    expect(bridge.isRunActive()).toBe(false)
   })
 
   it('falls back safely from an invalid character id', () => {

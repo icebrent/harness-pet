@@ -1,16 +1,19 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HarnessBridge } from './harness-bridge.js'
 import { HARNESS_WORKSPACE_PATH } from './harness-config.js'
-import { DEFAULT_CHARACTER_ID } from '../shared/characters.js'
+import { DEFAULT_CHARACTER_ID, isCharacterId, type CharacterId } from '../shared/characters.js'
 import {
   KANBAN_CHARACTER_ID,
+  autonomousMovementAllowed,
   parseDisplayMode,
   randomMovementEnabled,
   type DisplayMode,
 } from '../shared/display-mode.js'
+import { getSummonPosition } from './summon-pet.js'
+import { buildTrayMenuTemplate } from './tray-menu.js'
 
 const MOVE_STEP_MS = 30
 const DISPLAY_MODE = parseDisplayMode(process.argv)
@@ -20,10 +23,12 @@ const WINDOW_CONFIG: Record<DisplayMode, { width: number; height: number; right:
 }
 
 let petWindow: BrowserWindow | undefined
+let tray: Tray | undefined
 let bridge: HarnessBridge | undefined
 let movementTimer: NodeJS.Timeout | undefined
 let movementInterval: NodeJS.Timeout | undefined
-let motionPaused = false
+let rendererMotionPaused = false
+let userMotionPaused = false
 let shuttingDown = false
 
 const currentDir = fileURLToPath(new URL('.', import.meta.url))
@@ -77,14 +82,21 @@ function registerIpc(): void {
 
   ipcMain.handle('harness:ask', async (_event, prompt: unknown) => {
     if (typeof prompt !== 'string') throw new TypeError('Prompt must be text.')
-    return bridge?.ask(prompt)
+    if (!bridge) throw new Error('Harness is not ready.')
+    const request = bridge.ask(prompt)
+    refreshTrayMenu()
+    try {
+      return await request
+    } finally {
+      refreshTrayMenu()
+    }
   })
 
-  ipcMain.handle('harness:new-conversation', () => bridge?.newConversation())
+  ipcMain.handle('harness:new-conversation', () => newConversation(false))
 
   ipcMain.handle('harness:select-character', (_event, characterId: unknown) => {
     if (typeof characterId !== 'string') throw new TypeError('Character id must be text.')
-    return bridge?.selectCharacter(DISPLAY_MODE === 'kanban' ? KANBAN_CHARACTER_ID : characterId)
+    return selectCharacter(DISPLAY_MODE === 'kanban' ? KANBAN_CHARACTER_ID : characterId, false)
   })
 
   ipcMain.on('window:set-mouse-passthrough', (_event, passthrough: unknown) => {
@@ -93,7 +105,9 @@ function registerIpc(): void {
   })
 
   ipcMain.on('pet:set-motion-paused', (_event, paused: unknown) => {
-    if (typeof paused === 'boolean') motionPaused = paused
+    if (typeof paused !== 'boolean') return
+    rendererMotionPaused = paused
+    if (isMotionPaused()) stopCurrentMovement()
   })
 
   ipcMain.handle('window:get-position', () => {
@@ -111,6 +125,99 @@ function registerIpc(): void {
   ipcMain.on('app:quit', () => app.quit())
 }
 
+function isMotionPaused(): boolean {
+  return !autonomousMovementAllowed(DISPLAY_MODE, rendererMotionPaused, userMotionPaused)
+}
+
+function newConversation(notifyRenderer: boolean): ReturnType<HarnessBridge['newConversation']> {
+  if (!bridge) throw new Error('Harness is not ready.')
+  const status = bridge.newConversation()
+  refreshTrayMenu()
+  if (notifyRenderer && petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('conversation:new', status)
+  }
+  return status
+}
+
+function selectCharacter(rawCharacterId: string, notifyRenderer: boolean): ReturnType<HarnessBridge['selectCharacter']> {
+  if (!bridge) throw new Error('Harness is not ready.')
+  const characterId = DISPLAY_MODE === 'kanban'
+    ? KANBAN_CHARACTER_ID
+    : (isCharacterId(rawCharacterId) && rawCharacterId !== KANBAN_CHARACTER_ID
+        ? rawCharacterId
+        : DEFAULT_CHARACTER_ID)
+  const status = bridge.selectCharacter(characterId)
+  refreshTrayMenu()
+  if (notifyRenderer && petWindow && !petWindow.isDestroyed()) {
+    petWindow.webContents.send('character:changed', status)
+  }
+  return status
+}
+
+function summonPet(options: { openComposer: boolean }): void {
+  if (!petWindow || petWindow.isDestroyed()) return
+  stopCurrentMovement()
+  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const position = getSummonPosition(
+    petWindow.getBounds(),
+    screen.getAllDisplays().map(display => display.workArea),
+    cursorDisplay.workArea,
+    WINDOW_CONFIG[DISPLAY_MODE],
+  )
+  if (position) petWindow.setPosition(position.x, position.y)
+  if (!petWindow.isVisible()) petWindow.show()
+  petWindow.moveTop()
+  petWindow.focus()
+  if (options.openComposer) {
+    petWindow.setIgnoreMouseEvents(false)
+    petWindow.webContents.send('composer:show')
+  }
+}
+
+function toggleUserMovementPause(): void {
+  userMotionPaused = !userMotionPaused
+  if (userMotionPaused) stopCurrentMovement()
+  refreshTrayMenu()
+}
+
+function refreshTrayMenu(): void {
+  if (!tray || tray.isDestroyed() || !bridge) return
+  tray.setContextMenu(Menu.buildFromTemplate(buildTrayMenuTemplate({
+    displayMode: DISPLAY_MODE,
+    characterId: bridge.status().characterId,
+    activeRun: bridge.isRunActive(),
+    movementPaused: userMotionPaused,
+  }, {
+    summon: () => summonPet({ openComposer: false }),
+    newConversation: () => {
+      try {
+        newConversation(true)
+      } catch (error) {
+        console.error('Unable to start a new conversation from Tray:', error)
+      }
+    },
+    selectCharacter: (characterId: CharacterId) => {
+      try {
+        selectCharacter(characterId, true)
+      } catch (error) {
+        console.error('Unable to switch character from Tray:', error)
+      }
+    },
+    toggleMovement: toggleUserMovementPause,
+    quit: () => app.quit(),
+  })))
+}
+
+function createTray(): Tray {
+  const icon = nativeImage.createFromPath(join(app.getAppPath(), 'assets', 'tray-icon.png'))
+  const nextTray = new Tray(icon.resize({ width: 32, height: 32 }))
+  nextTray.setToolTip('HarnessPet')
+  nextTray.on('click', () => summonPet({ openComposer: false }))
+  tray = nextTray
+  refreshTrayMenu()
+  return nextTray
+}
+
 function clampToWorkArea(x: number, y: number): { x: number; y: number } {
   const geometry = WINDOW_CONFIG[DISPLAY_MODE]
   const windowBounds = { x, y, width: geometry.width, height: geometry.height }
@@ -126,7 +233,7 @@ function scheduleRandomMovement(): void {
   if (movementTimer !== undefined) clearTimeout(movementTimer)
   const delay = 9_000 + Math.floor(Math.random() * 8_000)
   movementTimer = setTimeout(() => {
-    if (!motionPaused) moveRandomly()
+    if (!isMotionPaused()) moveRandomly()
     scheduleRandomMovement()
   }, delay)
 }
@@ -147,7 +254,7 @@ function moveRandomly(): void {
   let step = 0
   petWindow.webContents.send('pet:movement', true)
   movementInterval = setInterval(() => {
-    if (!petWindow || petWindow.isDestroyed() || motionPaused) {
+    if (!petWindow || petWindow.isDestroyed() || isMotionPaused()) {
       stopCurrentMovement()
       return
     }
@@ -170,6 +277,8 @@ async function shutdownHarness(): Promise<void> {
   shuttingDown = true
   stopCurrentMovement()
   if (movementTimer !== undefined) clearTimeout(movementTimer)
+  if (tray && !tray.isDestroyed()) tray.destroy()
+  tray = undefined
   await bridge?.close()
 }
 
@@ -184,13 +293,11 @@ app.whenReady().then(() => {
   )
   registerIpc()
   petWindow = createPetWindow()
+  createTray()
   if (randomMovementEnabled(DISPLAY_MODE)) scheduleRandomMovement()
 
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
-    petWindow?.show()
-    petWindow?.focus()
-    petWindow?.setIgnoreMouseEvents(false)
-    petWindow?.webContents.send('composer:show')
+    summonPet({ openComposer: true })
   })
 })
 
@@ -202,6 +309,8 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  if (tray && !tray.isDestroyed()) tray.destroy()
+  tray = undefined
 })
 
 app.on('window-all-closed', () => app.quit())
