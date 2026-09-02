@@ -4,10 +4,20 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HarnessBridge } from './harness-bridge.js'
 import { HARNESS_WORKSPACE_PATH } from './harness-config.js'
+import { DEFAULT_CHARACTER_ID } from '../shared/characters.js'
+import {
+  KANBAN_CHARACTER_ID,
+  parseDisplayMode,
+  randomMovementEnabled,
+  type DisplayMode,
+} from '../shared/display-mode.js'
 
-const WINDOW_WIDTH = 430
-const WINDOW_HEIGHT = 560
 const MOVE_STEP_MS = 30
+const DISPLAY_MODE = parseDisplayMode(process.argv)
+const WINDOW_CONFIG: Record<DisplayMode, { width: number; height: number; right: number; bottom: number }> = {
+  chibi: { width: 430, height: 560, right: 24, bottom: 12 },
+  kanban: { width: 520, height: 720, right: 20, bottom: 8 },
+}
 
 let petWindow: BrowserWindow | undefined
 let bridge: HarnessBridge | undefined
@@ -20,11 +30,12 @@ const currentDir = fileURLToPath(new URL('.', import.meta.url))
 
 function createPetWindow(): BrowserWindow {
   const display = screen.getPrimaryDisplay().workArea
+  const geometry = WINDOW_CONFIG[DISPLAY_MODE]
   const window = new BrowserWindow({
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
-    x: display.x + display.width - WINDOW_WIDTH - 24,
-    y: display.y + display.height - WINDOW_HEIGHT - 12,
+    width: geometry.width,
+    height: geometry.height,
+    x: display.x + display.width - geometry.width - geometry.right,
+    y: display.y + display.height - geometry.height - geometry.bottom,
     transparent: true,
     frame: false,
     resizable: false,
@@ -62,6 +73,8 @@ function createPetWindow(): BrowserWindow {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('app:get-display-mode', () => DISPLAY_MODE)
+
   ipcMain.handle('harness:ask', async (_event, prompt: unknown) => {
     if (typeof prompt !== 'string') throw new TypeError('Prompt must be text.')
     return bridge?.ask(prompt)
@@ -71,7 +84,7 @@ function registerIpc(): void {
 
   ipcMain.handle('harness:select-character', (_event, characterId: unknown) => {
     if (typeof characterId !== 'string') throw new TypeError('Character id must be text.')
-    return bridge?.selectCharacter(characterId)
+    return bridge?.selectCharacter(DISPLAY_MODE === 'kanban' ? KANBAN_CHARACTER_ID : characterId)
   })
 
   ipcMain.on('window:set-mouse-passthrough', (_event, passthrough: unknown) => {
@@ -99,15 +112,17 @@ function registerIpc(): void {
 }
 
 function clampToWorkArea(x: number, y: number): { x: number; y: number } {
-  const windowBounds = { x, y, width: WINDOW_WIDTH, height: WINDOW_HEIGHT }
+  const geometry = WINDOW_CONFIG[DISPLAY_MODE]
+  const windowBounds = { x, y, width: geometry.width, height: geometry.height }
   const area = screen.getDisplayMatching(windowBounds).workArea
   return {
-    x: Math.min(Math.max(x, area.x), area.x + area.width - WINDOW_WIDTH),
-    y: Math.min(Math.max(y, area.y), area.y + area.height - WINDOW_HEIGHT),
+    x: Math.min(Math.max(x, area.x), area.x + area.width - geometry.width),
+    y: Math.min(Math.max(y, area.y), area.y + area.height - geometry.height),
   }
 }
 
 function scheduleRandomMovement(): void {
+  if (!randomMovementEnabled(DISPLAY_MODE)) return
   if (movementTimer !== undefined) clearTimeout(movementTimer)
   const delay = 9_000 + Math.floor(Math.random() * 8_000)
   movementTimer = setTimeout(() => {
@@ -117,6 +132,7 @@ function scheduleRandomMovement(): void {
 }
 
 function moveRandomly(): void {
+  if (!randomMovementEnabled(DISPLAY_MODE)) return
   if (!petWindow || petWindow.isDestroyed() || movementInterval !== undefined) return
   const position = petWindow.getPosition()
   const startX = position[0]!
@@ -158,11 +174,17 @@ async function shutdownHarness(): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  if (!app.isPackaged) console.log(`[HarnessPet] argv: ${JSON.stringify(process.argv)}`)
+  console.log(`[HarnessPet] display mode: ${DISPLAY_MODE}`)
   mkdirSync(HARNESS_WORKSPACE_PATH, { recursive: true })
-  bridge = new HarnessBridge(HARNESS_WORKSPACE_PATH)
+  bridge = new HarnessBridge(
+    HARNESS_WORKSPACE_PATH,
+    undefined,
+    DISPLAY_MODE === 'kanban' ? KANBAN_CHARACTER_ID : DEFAULT_CHARACTER_ID,
+  )
   registerIpc()
   petWindow = createPetWindow()
-  scheduleRandomMovement()
+  if (randomMovementEnabled(DISPLAY_MODE)) scheduleRandomMovement()
 
   globalShortcut.register('CommandOrControl+Shift+Space', () => {
     petWindow?.show()

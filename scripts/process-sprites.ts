@@ -9,11 +9,15 @@ const SPRITE_NAMES = [
   'back-1', 'back-2', 'sleep',
 ] as const
 
-const CHARACTERS = [
+const CHIBI_CHARACTERS = [
   { id: 'deepseek-blue', displayName: 'deepseek' },
   { id: 'claude-orange', displayName: 'claude' },
   { id: 'gpt-white', displayName: 'gpt' },
 ] as const
+
+const KANBAN_CHARACTER = { id: 'qwen-purple', displayName: 'qwen-purple' } as const
+const KANBAN_EXPRESSION_NAMES = ['idle', 'happy', 'think', 'talk', 'error', 'rest'] as const
+const KANBAN_GRID = { columns: 3, rows: 2 }
 
 const REFERENCE_CHARACTER_ID = 'deepseek-blue'
 const PADDING = 12
@@ -23,7 +27,8 @@ const COMPONENT_ALPHA_THRESHOLD = 24
 const MIN_DETACHED_PIXELS = 48
 
 type SpriteName = typeof SPRITE_NAMES[number]
-type CharacterConfig = typeof CHARACTERS[number]
+type CharacterConfig = typeof CHIBI_CHARACTERS[number]
+type KanbanExpressionName = typeof KANBAN_EXPRESSION_NAMES[number]
 
 interface Bounds {
   left: number
@@ -74,6 +79,15 @@ interface PreparedSprite {
 interface PreparedCharacter {
   source: CharacterSource
   sprites: PreparedSprite[]
+}
+
+interface KanbanExpression {
+  name: KanbanExpressionName
+  buffer: Buffer
+  sourceCell: { row: number; column: number; left: number; top: number; width: number; height: number }
+  visibleBounds: Bounds
+  bodyBounds: Bounds
+  sourceAnchor: { x: number; y: number }
 }
 
 function argValue(flag: string): string | undefined {
@@ -251,6 +265,24 @@ function footAnchor(sprite: RawSprite): { x: number; y: number } {
   return { x, y: sprite.bodyBounds.bottom }
 }
 
+function componentFootAnchor(component: AlphaComponent, width: number): { x: number; y: number } {
+  const bodyHeight = component.bounds.bottom - component.bounds.top + 1
+  const bandTop = component.bounds.top + Math.floor(bodyHeight * 0.65)
+  let left = component.bounds.right
+  let right = component.bounds.left
+  for (const index of component.pixels) {
+    const x = index % width
+    const y = Math.floor(index / width)
+    if (y < bandTop) continue
+    left = Math.min(left, x)
+    right = Math.max(right, x)
+  }
+  return {
+    x: right >= left ? Math.round((left + right) / 2) : Math.round((component.bounds.left + component.bounds.right) / 2),
+    y: component.bounds.bottom,
+  }
+}
+
 async function readCharacter(projectRoot: string, config: CharacterConfig): Promise<CharacterSource> {
   const input = join(projectRoot, 'assets', 'characters', config.id, 'source', 'poses.png')
   const metadata = await sharp(input).metadata()
@@ -404,29 +436,160 @@ async function writeCharacter(
   await writeFile(join(outputDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 }
 
+async function processKanbanCharacter(projectRoot: string): Promise<void> {
+  const characterRoot = join(projectRoot, 'assets', 'characters', KANBAN_CHARACTER.id)
+  const input = join(characterRoot, 'source', 'expressions.png')
+  const metadata = await sharp(input).metadata()
+  if (!metadata.width || !metadata.height) throw new Error(`Cannot read image dimensions: ${input}`)
+  if (metadata.width % KANBAN_GRID.columns !== 0 || metadata.height % KANBAN_GRID.rows !== 0) {
+    throw new Error(`Kanban expression sheet must divide evenly into ${KANBAN_GRID.columns}x${KANBAN_GRID.rows}: ${input}`)
+  }
+
+  const cellWidth = metadata.width / KANBAN_GRID.columns
+  const cellHeight = metadata.height / KANBAN_GRID.rows
+  if (cellWidth !== 512 || cellHeight !== 512) {
+    throw new Error(`Expected 512x512 Kanban cells, received ${cellWidth}x${cellHeight}: ${input}`)
+  }
+
+  const expressions: KanbanExpression[] = []
+  let transparentPixels = 0
+  let semiTransparentPixels = 0
+  let opaquePixels = 0
+  for (let index = 0; index < KANBAN_EXPRESSION_NAMES.length; index += 1) {
+    const row = Math.floor(index / KANBAN_GRID.columns)
+    const column = index % KANBAN_GRID.columns
+    const sourceCell = {
+      row,
+      column,
+      left: column * cellWidth,
+      top: row * cellHeight,
+      width: cellWidth,
+      height: cellHeight,
+    }
+    const pipeline = sharp(input).extract(sourceCell).ensureAlpha()
+    const [{ data, info }, buffer] = await Promise.all([
+      pipeline.clone().raw().toBuffer({ resolveWithObject: true }),
+      pipeline.clone().png().toBuffer(),
+    ])
+    for (let pixel = 0; pixel < info.width * info.height; pixel += 1) {
+      const alpha = data[pixel * 4 + 3]!
+      if (alpha === 0) transparentPixels += 1
+      else if (alpha === 255) opaquePixels += 1
+      else semiTransparentPixels += 1
+    }
+    const cornerIndexes = [
+      0,
+      info.width - 1,
+      (info.height - 1) * info.width,
+      info.width * info.height - 1,
+    ]
+    if (cornerIndexes.some(pixel => data[pixel * 4 + 3]! !== 0)) {
+      throw new Error(
+        `Kanban expression '${KANBAN_EXPRESSION_NAMES[index]}' does not have a transparent background at all four corners. Provide a transparent source; RGB threshold removal is intentionally disabled.`,
+      )
+    }
+    const body = alphaComponents(data, info.width, info.height)[0]
+    if (!body) throw new Error(`Kanban expression '${KANBAN_EXPRESSION_NAMES[index]}' has no visible body.`)
+    expressions.push({
+      name: KANBAN_EXPRESSION_NAMES[index]!,
+      buffer,
+      sourceCell,
+      visibleBounds: alphaBounds(data, info.width, info.height),
+      bodyBounds: body.bounds,
+      sourceAnchor: componentFootAnchor(body, info.width),
+    })
+  }
+
+  if (transparentPixels === 0) {
+    throw new Error(`Kanban source has no transparent background: ${input}. Provide a transparent source; RGB threshold removal is intentionally disabled.`)
+  }
+
+  const leftExtent = Math.max(...expressions.map(expression => expression.sourceAnchor.x))
+  const rightExtent = Math.max(...expressions.map(expression => cellWidth - 1 - expression.sourceAnchor.x))
+  const topExtent = Math.max(...expressions.map(expression => expression.sourceAnchor.y))
+  const bottomExtent = Math.max(...expressions.map(expression => cellHeight - 1 - expression.sourceAnchor.y))
+  const anchor = { x: PADDING + leftExtent, y: PADDING + topExtent }
+  const canvas = {
+    width: anchor.x + rightExtent + PADDING + 1,
+    height: anchor.y + bottomExtent + PADDING + 1,
+  }
+  const outputDir = join(characterRoot, 'sprites')
+  await mkdir(outputDir, { recursive: true })
+  const states: Record<string, object> = {}
+  for (const expression of expressions) {
+    const placement = {
+      left: anchor.x - expression.sourceAnchor.x,
+      top: anchor.y - expression.sourceAnchor.y,
+    }
+    await sharp({
+      create: { width: canvas.width, height: canvas.height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .composite([{ input: expression.buffer, ...placement }])
+      .png()
+      .toFile(join(outputDir, `${expression.name}.png`))
+    states[expression.name] = {
+      file: `${expression.name}.png`,
+      sourceCell: expression.sourceCell,
+      sourceVisibleBounds: expression.visibleBounds,
+      sourceBodyBounds: expression.bodyBounds,
+      sourceAnchor: expression.sourceAnchor,
+      placement,
+      scale: 1,
+    }
+  }
+
+  const manifest = {
+    characterId: KANBAN_CHARACTER.id,
+    displayName: KANBAN_CHARACTER.displayName,
+    displayMode: 'kanban',
+    source: relative(characterRoot, input).replaceAll('\\', '/'),
+    sourceSize: { width: metadata.width, height: metadata.height },
+    sourceAlpha: { transparentPixels, semiTransparentPixels, opaquePixels },
+    grid: KANBAN_GRID,
+    canvas,
+    anchor: { ...anchor, kind: 'foot-center' },
+    alignment: {
+      strategy: 'whole-cell-translation',
+      scale: 1,
+      basis: 'largest-alpha-component-foot-center',
+    },
+    stateOrder: KANBAN_EXPRESSION_NAMES,
+    states,
+    sprites: expressions.map(expression => ({ name: expression.name, file: `${expression.name}.png` })),
+  }
+  await writeFile(join(outputDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  console.log(
+    `Processed ${KANBAN_CHARACTER.id}: ${expressions.length} expressions, canvas ${canvas.width}x${canvas.height}, anchor (${anchor.x}, ${anchor.y}), scale 1.0000`,
+  )
+}
+
 async function main(): Promise<void> {
   const projectRoot = resolve(import.meta.dirname, '..')
   const requestedId = argValue('--character')
-  if (requestedId && !CHARACTERS.some(character => character.id === requestedId)) {
-    throw new Error(`Unknown character '${requestedId}'. Expected one of: ${CHARACTERS.map(character => character.id).join(', ')}`)
+  const knownIds = [...CHIBI_CHARACTERS.map(character => character.id), KANBAN_CHARACTER.id]
+  if (requestedId && !knownIds.includes(requestedId as typeof knownIds[number])) {
+    throw new Error(`Unknown character '${requestedId}'. Expected one of: ${knownIds.join(', ')}`)
   }
 
-  const sources = await Promise.all(CHARACTERS.map(character => readCharacter(projectRoot, character)))
-  const reference = sources.find(character => character.config.id === REFERENCE_CHARACTER_ID)!
-  for (const source of sources) source.scale = reference.idleBodyHeight / source.idleBodyHeight
-  const prepared = await Promise.all(sources.map(prepareCharacter))
-  const geometry = sharedCanvas(prepared)
-  const selected = requestedId
-    ? prepared.filter(character => character.source.config.id === requestedId)
-    : prepared
+  if (!requestedId || CHIBI_CHARACTERS.some(character => character.id === requestedId)) {
+    const sources = await Promise.all(CHIBI_CHARACTERS.map(character => readCharacter(projectRoot, character)))
+    const reference = sources.find(character => character.config.id === REFERENCE_CHARACTER_ID)!
+    for (const source of sources) source.scale = reference.idleBodyHeight / source.idleBodyHeight
+    const prepared = await Promise.all(sources.map(prepareCharacter))
+    const geometry = sharedCanvas(prepared)
+    const selected = requestedId
+      ? prepared.filter(character => character.source.config.id === requestedId)
+      : prepared
 
-  for (const character of selected) {
-    await writeCharacter(projectRoot, character, geometry.canvas, geometry.anchor, reference.idleBodyHeight)
-    console.log(
-      `Processed ${character.source.config.id}: ${SPRITE_NAMES.length} sprites, idle body ${character.source.idleBodyHeight}px, scale ${character.source.scale.toFixed(4)}`,
-    )
+    for (const character of selected) {
+      await writeCharacter(projectRoot, character, geometry.canvas, geometry.anchor, reference.idleBodyHeight)
+      console.log(
+        `Processed ${character.source.config.id}: ${SPRITE_NAMES.length} sprites, idle body ${character.source.idleBodyHeight}px, scale ${character.source.scale.toFixed(4)}`,
+      )
+    }
+    console.log(`Shared chibi canvas ${geometry.canvas.width}x${geometry.canvas.height}, anchor (${geometry.anchor.x}, ${geometry.anchor.y})`)
   }
-  console.log(`Shared canvas ${geometry.canvas.width}x${geometry.canvas.height}, anchor (${geometry.anchor.x}, ${geometry.anchor.y})`)
+  if (!requestedId || requestedId === KANBAN_CHARACTER.id) await processKanbanCharacter(projectRoot)
 }
 
 await main()

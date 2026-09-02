@@ -1,4 +1,5 @@
 import type { CharacterId } from './characters.js'
+import type { DisplayMode } from './display-mode.js'
 
 export type PetState = 'idle' | 'thinking' | 'answer' | 'error'
 
@@ -20,6 +21,7 @@ export interface DragStart {
 }
 
 export interface HarnessPetApi {
+  getDisplayMode(): Promise<DisplayMode>
   ask(prompt: string): Promise<HarnessAnswer>
   newConversation(): Promise<HarnessStatus>
   selectCharacter(characterId: string): Promise<HarnessStatus>

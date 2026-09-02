@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { DragStart, HarnessAnswer, HarnessPetApi, HarnessStatus } from '../shared/contracts.js'
 
 const api: HarnessPetApi = {
+  getDisplayMode: () => ipcRenderer.invoke('app:get-display-mode') as Promise<import('../shared/display-mode.js').DisplayMode>,
   ask: (prompt: string) => ipcRenderer.invoke('harness:ask', prompt) as Promise<HarnessAnswer>,
   newConversation: () => ipcRenderer.invoke('harness:new-conversation') as Promise<HarnessStatus>,
   selectCharacter: (characterId: string) => ipcRenderer.invoke('harness:select-character', characterId) as Promise<HarnessStatus>,

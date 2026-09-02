@@ -238,3 +238,32 @@ button, textarea, select { font: inherit; }
 
 .is-hidden { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+
+body[data-display-mode="kanban"] .pet-wrap {
+  bottom: 0;
+  width: 460px;
+  height: 485px;
+  filter: drop-shadow(0 12px 12px rgb(32 30 88 / 22%));
+}
+
+body[data-display-mode="kanban"] #pet-canvas {
+  width: min(440px, 100%);
+  transform: none;
+  transform-origin: 50% 96%;
+}
+
+body[data-display-mode="kanban"] .pet-wrap[data-state="answer"] #pet-canvas {
+  transform: none;
+}
+
+body[data-display-mode="kanban"] .bubble,
+body[data-display-mode="kanban"] .composer {
+  left: 20px;
+  right: 20px;
+  bottom: 472px;
+}
+
+body[data-display-mode="kanban"] .thinking-dots {
+  top: 68px;
+  right: 70px;
+}

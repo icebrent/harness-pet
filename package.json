@@ -8,7 +8,7 @@
   "scripts": {
     "process:sprites": "tsx scripts/process-sprites.ts",
     "predev": "pnpm process:sprites",
-    "dev": "electron-vite dev",
+    "dev": "electron-vite dev --",
     "build": "pnpm process:sprites && electron-vite build",
     "preview": "electron-vite preview",
     "pretypecheck": "pnpm process:sprites",

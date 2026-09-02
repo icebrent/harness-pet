@@ -85,4 +85,43 @@ describe('character pack sprites', () => {
     expect(new Set(manifests.map(manifest => JSON.stringify(manifest.canvas))).size).toBe(1)
     expect(new Set(manifests.map(manifest => JSON.stringify(manifest.anchor))).size).toBe(1)
   })
+
+  it('qwen-purple has six aligned, same-canvas Kanban expressions without per-state scaling', async () => {
+    const root = resolve(import.meta.dirname, '..')
+    const packDir = resolve(root, 'assets', 'characters', 'qwen-purple')
+    const manifest = JSON.parse(await readFile(resolve(packDir, 'sprites', 'manifest.json'), 'utf8')) as {
+      characterId: string
+      displayMode: string
+      source: string
+      grid: { columns: number; rows: number }
+      canvas: { width: number; height: number }
+      anchor: { x: number; y: number; kind: string }
+      stateOrder: string[]
+      states: Record<string, {
+        file: string
+        sourceAnchor: { x: number; y: number }
+        placement: { left: number; top: number }
+        scale: number
+      }>
+    }
+    const expressionNames = ['idle', 'happy', 'think', 'talk', 'error', 'rest']
+
+    expect(manifest.characterId).toBe('qwen-purple')
+    expect(manifest.displayMode).toBe('kanban')
+    expect(manifest.grid).toEqual({ columns: 3, rows: 2 })
+    expect(manifest.anchor.kind).toBe('foot-center')
+    expect(manifest.stateOrder).toEqual(expressionNames)
+    await access(resolve(packDir, manifest.source))
+
+    for (const name of expressionNames) {
+      const state = manifest.states[name]!
+      expect(state.scale).toBe(1)
+      expect(state.placement.left + state.sourceAnchor.x).toBe(manifest.anchor.x)
+      expect(state.placement.top + state.sourceAnchor.y).toBe(manifest.anchor.y)
+      const metadata = await sharp(resolve(packDir, 'sprites', state.file)).metadata()
+      expect(metadata.width).toBe(manifest.canvas.width)
+      expect(metadata.height).toBe(manifest.canvas.height)
+      expect(metadata.hasAlpha).toBe(true)
+    }
+  })
 })

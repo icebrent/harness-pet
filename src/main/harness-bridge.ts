@@ -34,7 +34,10 @@ export class HarnessBridge {
   constructor(
     private readonly cwd: string,
     private readonly createRuntime: HarnessFactory = async () => createNodeHarnessRuntime(cwd),
-  ) {}
+    initialCharacterId: CharacterId = DEFAULT_CHARACTER_ID,
+  ) {
+    this.characterId = initialCharacterId
+  }
 
   status(): HarnessStatus {
     return {

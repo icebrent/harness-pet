@@ -1,9 +1,14 @@
 import type { PetState } from '../shared/contracts'
+import { KANBAN_CHARACTER_ID, type DisplayMode } from '../shared/display-mode'
 import {
   characterRegistry,
   DEFAULT_CHARACTER_ID,
   getCharacter,
+  KANBAN_EXPRESSION_NAMES,
+  KANBAN_STATE_EXPRESSIONS,
+  kanbanCharacter,
   SPRITE_NAMES,
+  type KanbanExpressionName,
   type SpriteName,
 } from './character-registry'
 
@@ -26,8 +31,11 @@ const thinkingDots = document.querySelector<HTMLElement>('#thinking-dots')!
 const characterSelect = document.querySelector<HTMLSelectElement>('#character-select')!
 
 const sprites = new Map<string, Map<SpriteName, HTMLImageElement>>()
-let currentCharacterId = restoreCharacterId()
+const kanbanExpressions = new Map<KanbanExpressionName, HTMLImageElement>()
+let displayMode: DisplayMode = 'chibi'
+let currentCharacterId: string = DEFAULT_CHARACTER_ID
 let currentSprite: SpriteName = 'idle'
+let currentKanbanExpression: KanbanExpressionName = 'idle'
 let currentState: PetState = 'idle'
 let characterTransitioning = false
 let walkingFrame = 0
@@ -37,6 +45,8 @@ let answerDeadline = 0
 let answerRemainingMs = 0
 let sleepTimer: number | undefined
 let wakeTimer: number | undefined
+let kanbanRestTimer: number | undefined
+let kanbanWakeTimer: number | undefined
 let composerVisible = false
 let dragging = false
 let dragMoved = false
@@ -47,6 +57,18 @@ let dragStartWindowY = 0
 let passthrough = true
 
 async function loadSprites(): Promise<void> {
+  if (displayMode === 'kanban') {
+    await Promise.all(KANBAN_EXPRESSION_NAMES.map(async (name) => {
+      const image = new Image()
+      image.src = kanbanCharacter.expressions[name]
+      await image.decode()
+      kanbanExpressions.set(name, image)
+    }))
+    drawKanbanExpression('idle')
+    scheduleKanbanRest()
+    return
+  }
+
   for (const character of characterRegistry) {
     const characterSprites = new Map<SpriteName, HTMLImageElement>()
     await Promise.all(SPRITE_NAMES.map(async (name) => {
@@ -66,6 +88,18 @@ function drawSprite(name: SpriteName): void {
   const image = sprites.get(currentCharacterId)?.get(name)
   if (!image) return
   currentSprite = name
+  if (canvas.width !== image.naturalWidth || canvas.height !== image.naturalHeight) {
+    canvas.width = image.naturalWidth
+    canvas.height = image.naturalHeight
+  }
+  context.clearRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(image, 0, 0)
+}
+
+function drawKanbanExpression(name: KanbanExpressionName): void {
+  const image = kanbanExpressions.get(name)
+  if (!image) return
+  currentKanbanExpression = name
   if (canvas.width !== image.naturalWidth || canvas.height !== image.naturalHeight) {
     canvas.width = image.naturalWidth
     canvas.height = image.naturalHeight
@@ -96,6 +130,7 @@ function populateCharacterSelect(): void {
 }
 
 function persistCharacterId(): void {
+  if (displayMode === 'kanban') return
   characterSelect.value = currentCharacterId
   try {
     window.localStorage.setItem(CHARACTER_STORAGE_KEY, currentCharacterId)
@@ -105,6 +140,7 @@ function persistCharacterId(): void {
 }
 
 async function switchCharacter(characterId: string): Promise<void> {
+  if (displayMode === 'kanban') return
   if (currentState === 'thinking' || characterTransitioning) return
   const previousCharacterId = currentCharacterId
   const nextCharacter = getCharacter(characterId)
@@ -144,7 +180,9 @@ function setState(state: PetState): void {
   currentState = state
   petWrap.dataset.state = state
   thinkingDots.classList.toggle('is-hidden', state !== 'thinking')
-  if (state === 'thinking') drawSprite('think')
+  if (displayMode === 'kanban') {
+    drawKanbanExpression(KANBAN_STATE_EXPRESSIONS[state])
+  } else if (state === 'thinking') drawSprite('think')
   else if (state === 'answer') drawSprite('happy')
   else if (state === 'error') drawSprite('think')
   else if (walkingTimer === undefined) drawSprite('idle')
@@ -154,6 +192,7 @@ function showComposer(): void {
   composerVisible = true
   clearAnswerTimer()
   bubble.classList.add('is-hidden')
+  if (displayMode === 'kanban') setState('idle')
   composer.classList.remove('is-hidden')
   window.harnessPet.setMotionPaused(true)
   setPassthrough(false)
@@ -244,6 +283,7 @@ function updatePassthroughFromPointer(event?: PointerEvent | MouseEvent): void {
 }
 
 function startWalking(): void {
+  if (displayMode === 'kanban') return
   if (currentState !== 'idle' || composerVisible) return
   if (wakeTimer !== undefined) wakeFromSleep()
   if (walkingTimer !== undefined) return
@@ -275,6 +315,29 @@ function scheduleSleep(): void {
   }, 55_000)
 }
 
+function scheduleKanbanRest(): void {
+  if (kanbanRestTimer !== undefined) window.clearTimeout(kanbanRestTimer)
+  kanbanRestTimer = window.setTimeout(() => {
+    if (currentState !== 'idle' || composerVisible || dragging) {
+      scheduleKanbanRest()
+      return
+    }
+    drawKanbanExpression('rest')
+    kanbanWakeTimer = window.setTimeout(() => {
+      kanbanWakeTimer = undefined
+      if (currentState === 'idle') drawKanbanExpression('idle')
+      scheduleKanbanRest()
+    }, 14_000)
+  }, 75_000)
+}
+
+function resetKanbanRestClock(): void {
+  if (kanbanWakeTimer !== undefined) window.clearTimeout(kanbanWakeTimer)
+  kanbanWakeTimer = undefined
+  if (currentState === 'idle' && currentKanbanExpression === 'rest') drawKanbanExpression('idle')
+  scheduleKanbanRest()
+}
+
 function wakeFromSleep(): void {
   if (wakeTimer !== undefined) window.clearTimeout(wakeTimer)
   wakeTimer = undefined
@@ -284,6 +347,10 @@ function wakeFromSleep(): void {
 }
 
 function resetSleepClock(): void {
+  if (displayMode === 'kanban') {
+    resetKanbanRestClock()
+    return
+  }
   if (wakeTimer !== undefined) wakeFromSleep()
   else scheduleSleep()
 }
@@ -404,11 +471,21 @@ document.addEventListener('keydown', resetSleepClock)
 document.addEventListener('pointerdown', resetSleepClock)
 
 window.harnessPet.onShowComposer(showComposer)
-window.harnessPet.onMovement((moving) => moving ? startWalking() : stopWalking())
+window.harnessPet.onMovement((moving) => {
+  if (displayMode === 'chibi') moving ? startWalking() : stopWalking()
+})
 
 async function initialize(): Promise<void> {
   setConversationControlsDisabled(true)
+  displayMode = await window.harnessPet.getDisplayMode()
+  document.body.dataset.displayMode = displayMode
+  currentCharacterId = displayMode === 'kanban' ? KANBAN_CHARACTER_ID : restoreCharacterId()
+  if (displayMode === 'kanban') {
+    characterSelect.closest('.character-picker')?.classList.add('is-hidden')
+    petWrap.setAttribute('aria-label', 'Qwen Purple Kanban desktop pet')
+  }
   await loadSprites()
+  setState('idle')
   const status = await window.harnessPet.selectCharacter(currentCharacterId)
   currentCharacterId = status.characterId
   persistCharacterId()

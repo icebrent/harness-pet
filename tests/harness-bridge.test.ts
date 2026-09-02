@@ -40,6 +40,18 @@ describe('HarnessBridge', () => {
     },
   )
 
+  it('bootstraps qwen-purple in the initial Kanban session', async () => {
+    const runtime = createRuntime()
+    const bridge = new HarnessBridge('D:\\workspace', runtime.factory, 'qwen-purple')
+
+    expect(bridge.status().characterId).toBe('qwen-purple')
+    expect(bridge.status().sessionBootstrapped).toBe(false)
+    await bridge.ask('你好')
+
+    expect(runtime.run.mock.calls[0]![0]).toContain(getCharacterDefinition('qwen-purple').persona)
+    expect(bridge.status().sessionBootstrapped).toBe(true)
+  })
+
   it('manual newConversation keeps the character and resets bootstrap', async () => {
     const runtime = createRuntime()
     const bridge = new HarnessBridge('D:\\workspace', runtime.factory)

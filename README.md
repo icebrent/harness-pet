@@ -2,7 +2,12 @@
 
 HarnessPet 是一个 Windows 优先的轻量 Electron 桌宠。它使用透明、无边框、置顶窗口展示角色；用户点击角色或按 `Ctrl+Shift+Space` 唤出输入框，消息通过官方 DeepSeek Harness TypeScript SDK 发送给本机 Harness runtime，最终回答显示为角色头顶气泡。
 
-当前版本实现桌宠与 Harness 连续对话的核心体验，并支持在运行中切换三套带独立轻量 persona 的角色；不包含数据库、账号、Web 服务或自建 Agent loop。
+当前版本实现桌宠与 Harness 连续对话的核心体验，并提供两种启动时确定的显示模式；不包含数据库、账号、Web 服务或自建 Agent loop。
+
+- **Chibi mode**：默认模式。使用三套 Q 版角色，可运行中切换角色、随机在桌面横向走动并进入 sleep。
+- **Kanban mode**：使用 `--mode=kanban` 启动，当前固定为正常人体比例的 `qwen-purple` 看板娘，不随机移动，通过六张静态表情差分响应 Harness 状态。
+
+Kanban mode 不是 Live2D：它没有骨骼、模型或连续嘴型动画，只使用保持相同构图和对齐的静态立绘切换表情。两种模式复用同一套 Harness runtime、安全 IPC、session、气泡、输入框、拖动与透明区域鼠标穿透机制。
 
 ## 环境依赖
 
@@ -29,7 +34,29 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` 会先重复执行素材处理脚本，再启动 Electron。点击角色可打开输入框；拖动角色可移动窗口；`Ctrl+Shift+Space` 可从任意位置唤出输入框。输入框中的角色选择器会立即切换视觉素材、记住选择并创建新的 Harness session，但不会重启 Electron 或 Harness runtime；未发送的输入内容会保留。请求运行期间角色选择器和新对话按钮会暂时禁用。`New conversation` 保持当前角色不变并生成新的 session id。两种新 session 都会在下一条真实用户消息中重新引导当前角色 persona，之后的连续提问只发送原始用户输入。
+默认启动 Chibi mode：
+
+```powershell
+pnpm dev
+# 等价于
+pnpm dev -- --mode=chibi
+```
+
+启动 Kanban mode：
+
+```powershell
+pnpm dev -- --mode=kanban
+```
+
+打包后的 Electron executable 使用相同参数语义：
+
+```powershell
+HarnessPet.exe --mode=kanban
+```
+
+未知或非法 `--mode` 会输出一条简短 warning 并安全回退到 `chibi`。mode 只在 Electron main 启动时解析，运行过程中不切换。
+
+`pnpm dev` 会先重复执行素材处理脚本，再启动 Electron。点击角色可打开输入框；拖动角色可移动窗口；`Ctrl+Shift+Space` 可从任意位置唤出输入框。Chibi mode 的角色选择器会立即切换视觉素材、记住选择并创建新的 Harness session，但不会重启 Electron 或 Harness runtime；未发送的输入内容会保留。Kanban mode 隐藏角色选择器并固定使用 `qwen-purple`。请求运行期间角色选择器和新对话按钮会暂时禁用。`New conversation` 保持当前角色不变并生成新的 session id。两种新 session 都会在下一条真实用户消息中重新引导当前角色 persona，之后的连续提问只发送原始用户输入。
 
 ## 检查与验证
 
@@ -68,6 +95,17 @@ pnpm process:sprites --character claude-orange
 5. 为每个角色输出九张 PNG 和 `sprites/manifest.json`，其中记录 character id、source、canvas、anchor、状态文件和 normalization scale。
 
 生成的 sprites 被 `.gitignore` 忽略，可随时从原图重建；原始 `poses.png` 不会被覆盖或重新生成。
+
+### Kanban 表情素材
+
+`qwen-purple` 不使用上述 Chibi 九宫格。原始差分位于 `assets/characters/qwen-purple/source/expressions.png`，是 3×2、每格 512×512 的透明 sheet，按行映射为：
+
+```text
+idle   happy   think
+talk   error   rest
+```
+
+处理脚本保持每格缩放为 `1`，按人物主连通域的脚底中心将整格平移到共享 anchor，输出到 `assets/characters/qwen-purple/sprites/`。这样不会对各状态单独缩放，也不会修改 `source/original.png` 或 `source/expressions.png`。当前状态映射为 `idle → idle`、`thinking → think`、`answer → talk`、`error → error`；长时间无操作时可短暂显示 `rest`。Kanban mode 不使用 walk、back 或 Chibi sleep。
 
 ### 加入新角色
 
@@ -115,6 +153,10 @@ assets/
       source/poses.png
       reference/turnaround.png
       sprites/
+    qwen-purple/
+      source/original.png
+      source/expressions.png
+      sprites/             六张静态 Kanban 表情与 manifest
 scripts/
   process-sprites.ts
   harness-smoke.ts
