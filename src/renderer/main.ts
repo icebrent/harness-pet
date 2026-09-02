@@ -1,27 +1,13 @@
-import idleUrl from '../../assets/sprites/idle.png'
-import happyUrl from '../../assets/sprites/happy.png'
-import greetUrl from '../../assets/sprites/greet.png'
-import thinkUrl from '../../assets/sprites/think.png'
-import walk1Url from '../../assets/sprites/walk-1.png'
-import walk2Url from '../../assets/sprites/walk-2.png'
-import back1Url from '../../assets/sprites/back-1.png'
-import back2Url from '../../assets/sprites/back-2.png'
-import sleepUrl from '../../assets/sprites/sleep.png'
 import type { PetState } from '../shared/contracts'
+import {
+  characterRegistry,
+  DEFAULT_CHARACTER_ID,
+  getCharacter,
+  SPRITE_NAMES,
+  type SpriteName,
+} from './character-registry'
 
-type SpriteName = 'idle' | 'happy' | 'greet' | 'think' | 'walk-1' | 'walk-2' | 'back-1' | 'back-2' | 'sleep'
-
-const spriteUrls: Record<SpriteName, string> = {
-  idle: idleUrl,
-  happy: happyUrl,
-  greet: greetUrl,
-  think: thinkUrl,
-  'walk-1': walk1Url,
-  'walk-2': walk2Url,
-  'back-1': back1Url,
-  'back-2': back2Url,
-  sleep: sleepUrl,
-}
+const CHARACTER_STORAGE_KEY = 'harness-pet:character-id'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#pet-canvas')!
 const context = canvas.getContext('2d', { willReadFrequently: true })!
@@ -37,8 +23,10 @@ const newConversationButton = document.querySelector<HTMLButtonElement>('#new-co
 const quitButton = document.querySelector<HTMLButtonElement>('#quit')!
 const statusLabel = document.querySelector<HTMLElement>('#status-label')!
 const thinkingDots = document.querySelector<HTMLElement>('#thinking-dots')!
+const characterSelect = document.querySelector<HTMLSelectElement>('#character-select')!
 
-const sprites = new Map<SpriteName, HTMLImageElement>()
+const sprites = new Map<string, Map<SpriteName, HTMLImageElement>>()
+let currentCharacterId = restoreCharacterId()
 let currentSprite: SpriteName = 'idle'
 let currentState: PetState = 'idle'
 let walkingFrame = 0
@@ -58,18 +46,23 @@ let dragStartWindowY = 0
 let passthrough = true
 
 async function loadSprites(): Promise<void> {
-  await Promise.all(Object.entries(spriteUrls).map(async ([name, url]) => {
-    const image = new Image()
-    image.src = url
-    await image.decode()
-    sprites.set(name as SpriteName, image)
-  }))
+  for (const character of characterRegistry) {
+    const characterSprites = new Map<SpriteName, HTMLImageElement>()
+    await Promise.all(SPRITE_NAMES.map(async (name) => {
+      const image = new Image()
+      image.src = character.sprites[name]
+      await image.decode()
+      characterSprites.set(name, image)
+    }))
+    sprites.set(character.id, characterSprites)
+  }
+  populateCharacterSelect()
   drawSprite('idle')
   scheduleSleep()
 }
 
 function drawSprite(name: SpriteName): void {
-  const image = sprites.get(name)
+  const image = sprites.get(currentCharacterId)?.get(name)
   if (!image) return
   currentSprite = name
   if (canvas.width !== image.naturalWidth || canvas.height !== image.naturalHeight) {
@@ -78,6 +71,38 @@ function drawSprite(name: SpriteName): void {
   }
   context.clearRect(0, 0, canvas.width, canvas.height)
   context.drawImage(image, 0, 0)
+}
+
+function restoreCharacterId(): string {
+  try {
+    const saved = window.localStorage.getItem(CHARACTER_STORAGE_KEY)
+    return saved && characterRegistry.some(character => character.id === saved)
+      ? saved
+      : DEFAULT_CHARACTER_ID
+  } catch {
+    return DEFAULT_CHARACTER_ID
+  }
+}
+
+function populateCharacterSelect(): void {
+  characterSelect.replaceChildren(...characterRegistry.map((character) => {
+    const option = document.createElement('option')
+    option.value = character.id
+    option.textContent = character.displayName
+    return option
+  }))
+  characterSelect.value = getCharacter(currentCharacterId).id
+}
+
+function switchCharacter(characterId: string): void {
+  currentCharacterId = getCharacter(characterId).id
+  characterSelect.value = currentCharacterId
+  try {
+    window.localStorage.setItem(CHARACTER_STORAGE_KEY, currentCharacterId)
+  } catch {
+    // The visual switch still works if persistent storage is unavailable.
+  }
+  drawSprite(currentSprite)
 }
 
 function setState(state: PetState): void {
@@ -235,18 +260,18 @@ composer.addEventListener('submit', async (event) => {
 
   sendButton.disabled = true
   promptInput.disabled = true
-  statusLabel.textContent = 'Harness 思考中…'
+  statusLabel.textContent = 'Harness is thinking…'
   setState('thinking')
   window.harnessPet.setMotionPaused(true)
   try {
     const answer = await window.harnessPet.ask(prompt)
     promptInput.value = ''
-    statusLabel.textContent = '就绪'
+    statusLabel.textContent = 'Ready'
     showBubble(answer.finalResponse)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    statusLabel.textContent = '请求失败'
-    showBubble(`Harness 出错了：${message}`, true)
+    statusLabel.textContent = 'Request failed'
+    showBubble(`Harness error: ${message}`, true)
   } finally {
     sendButton.disabled = false
     promptInput.disabled = false
@@ -267,12 +292,14 @@ newConversationButton.addEventListener('click', async () => {
   try {
     await window.harnessPet.newConversation()
     promptInput.value = ''
-    statusLabel.textContent = '已开始新对话'
+    statusLabel.textContent = 'New conversation started'
     promptInput.focus()
   } catch (error) {
-    statusLabel.textContent = error instanceof Error ? error.message : '无法开始新对话'
+    statusLabel.textContent = error instanceof Error ? error.message : 'Unable to start a new conversation'
   }
 })
+
+characterSelect.addEventListener('change', () => switchCharacter(characterSelect.value))
 
 bubbleReplyButton.addEventListener('click', showComposer)
 bubbleDismissButton.addEventListener('click', dismissBubble)

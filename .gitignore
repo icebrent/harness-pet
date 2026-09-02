@@ -13,6 +13,6 @@ Thumbs.db
 !.env.example
 .credentials*
 credentials*
-assets/sprites/*.png
-assets/sprites/manifest.json
-!assets/sprites/.gitkeep
+assets/characters/*/sprites/*.png
+assets/characters/*/sprites/manifest.json
+!assets/characters/*/sprites/.gitkeep
