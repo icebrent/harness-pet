@@ -29,6 +29,7 @@ const sprites = new Map<string, Map<SpriteName, HTMLImageElement>>()
 let currentCharacterId = restoreCharacterId()
 let currentSprite: SpriteName = 'idle'
 let currentState: PetState = 'idle'
+let characterTransitioning = false
 let walkingFrame = 0
 let walkingTimer: number | undefined
 let answerTimer: number | undefined
@@ -94,15 +95,49 @@ function populateCharacterSelect(): void {
   characterSelect.value = getCharacter(currentCharacterId).id
 }
 
-function switchCharacter(characterId: string): void {
-  currentCharacterId = getCharacter(characterId).id
+function persistCharacterId(): void {
   characterSelect.value = currentCharacterId
   try {
     window.localStorage.setItem(CHARACTER_STORAGE_KEY, currentCharacterId)
   } catch {
     // The visual switch still works if persistent storage is unavailable.
   }
+}
+
+async function switchCharacter(characterId: string): Promise<void> {
+  if (currentState === 'thinking' || characterTransitioning) return
+  const previousCharacterId = currentCharacterId
+  const nextCharacter = getCharacter(characterId)
+  if (nextCharacter.id === previousCharacterId) return
+
+  currentCharacterId = nextCharacter.id
+  characterSelect.value = currentCharacterId
   drawSprite(currentSprite)
+  characterTransitioning = true
+  setConversationControlsDisabled(true)
+  try {
+    const status = await window.harnessPet.selectCharacter(currentCharacterId)
+    currentCharacterId = status.characterId
+    persistCharacterId()
+    clearAnswerTimer()
+    bubble.classList.add('is-hidden')
+    setState('idle')
+    statusLabel.textContent = `${getCharacter(currentCharacterId).displayName} · 新对话`
+  } catch (error) {
+    currentCharacterId = previousCharacterId
+    characterSelect.value = currentCharacterId
+    drawSprite(currentSprite)
+    statusLabel.textContent = error instanceof Error ? error.message : 'Unable to switch character'
+  } finally {
+    characterTransitioning = false
+    setConversationControlsDisabled(false)
+  }
+}
+
+function setConversationControlsDisabled(disabled: boolean): void {
+  sendButton.disabled = disabled
+  newConversationButton.disabled = disabled
+  characterSelect.disabled = disabled
 }
 
 function setState(state: PetState): void {
@@ -256,9 +291,9 @@ function resetSleepClock(): void {
 composer.addEventListener('submit', async (event) => {
   event.preventDefault()
   const prompt = promptInput.value.trim()
-  if (!prompt || currentState === 'thinking') return
+  if (!prompt || currentState === 'thinking' || characterTransitioning) return
 
-  sendButton.disabled = true
+  setConversationControlsDisabled(true)
   promptInput.disabled = true
   statusLabel.textContent = 'Harness is thinking…'
   setState('thinking')
@@ -273,7 +308,7 @@ composer.addEventListener('submit', async (event) => {
     statusLabel.textContent = 'Request failed'
     showBubble(`Harness error: ${message}`, true)
   } finally {
-    sendButton.disabled = false
+    setConversationControlsDisabled(false)
     promptInput.disabled = false
   }
 })
@@ -289,17 +324,24 @@ promptInput.addEventListener('keydown', (event) => {
 })
 
 newConversationButton.addEventListener('click', async () => {
+  if (currentState === 'thinking' || characterTransitioning) return
+  setConversationControlsDisabled(true)
   try {
     await window.harnessPet.newConversation()
     promptInput.value = ''
+    clearAnswerTimer()
+    bubble.classList.add('is-hidden')
+    setState('idle')
     statusLabel.textContent = 'New conversation started'
     promptInput.focus()
   } catch (error) {
     statusLabel.textContent = error instanceof Error ? error.message : 'Unable to start a new conversation'
+  } finally {
+    setConversationControlsDisabled(false)
   }
 })
 
-characterSelect.addEventListener('change', () => switchCharacter(characterSelect.value))
+characterSelect.addEventListener('change', () => void switchCharacter(characterSelect.value))
 
 bubbleReplyButton.addEventListener('click', showComposer)
 bubbleDismissButton.addEventListener('click', dismissBubble)
@@ -364,4 +406,16 @@ document.addEventListener('pointerdown', resetSleepClock)
 window.harnessPet.onShowComposer(showComposer)
 window.harnessPet.onMovement((moving) => moving ? startWalking() : stopWalking())
 
-void loadSprites()
+async function initialize(): Promise<void> {
+  setConversationControlsDisabled(true)
+  await loadSprites()
+  const status = await window.harnessPet.selectCharacter(currentCharacterId)
+  currentCharacterId = status.characterId
+  persistCharacterId()
+  setConversationControlsDisabled(false)
+}
+
+void initialize().catch((error) => {
+  statusLabel.textContent = error instanceof Error ? error.message : 'Unable to initialize HarnessPet'
+  setConversationControlsDisabled(false)
+})

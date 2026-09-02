@@ -4,6 +4,7 @@ import type { DragStart, HarnessAnswer, HarnessPetApi, HarnessStatus } from '../
 const api: HarnessPetApi = {
   ask: (prompt: string) => ipcRenderer.invoke('harness:ask', prompt) as Promise<HarnessAnswer>,
   newConversation: () => ipcRenderer.invoke('harness:new-conversation') as Promise<HarnessStatus>,
+  selectCharacter: (characterId: string) => ipcRenderer.invoke('harness:select-character', characterId) as Promise<HarnessStatus>,
   setMousePassthrough: (passthrough: boolean) => ipcRenderer.send('window:set-mouse-passthrough', passthrough),
   setMotionPaused: (paused: boolean) => ipcRenderer.send('pet:set-motion-paused', paused),
   getWindowPosition: () => ipcRenderer.invoke('window:get-position') as Promise<DragStart>,

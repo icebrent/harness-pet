@@ -69,6 +69,11 @@ function registerIpc(): void {
 
   ipcMain.handle('harness:new-conversation', () => bridge?.newConversation())
 
+  ipcMain.handle('harness:select-character', (_event, characterId: unknown) => {
+    if (typeof characterId !== 'string') throw new TypeError('Character id must be text.')
+    return bridge?.selectCharacter(characterId)
+  })
+
   ipcMain.on('window:set-mouse-passthrough', (_event, passthrough: unknown) => {
     if (typeof passthrough !== 'boolean') return
     petWindow?.setIgnoreMouseEvents(passthrough, { forward: true })

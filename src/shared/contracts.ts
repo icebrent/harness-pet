@@ -1,3 +1,5 @@
+import type { CharacterId } from './characters.js'
+
 export type PetState = 'idle' | 'thinking' | 'answer' | 'error'
 
 export interface HarnessAnswer {
@@ -8,6 +10,8 @@ export interface HarnessAnswer {
 export interface HarnessStatus {
   state: PetState
   sessionId: string
+  characterId: CharacterId
+  sessionBootstrapped: boolean
 }
 
 export interface DragStart {
@@ -18,6 +22,7 @@ export interface DragStart {
 export interface HarnessPetApi {
   ask(prompt: string): Promise<HarnessAnswer>
   newConversation(): Promise<HarnessStatus>
+  selectCharacter(characterId: string): Promise<HarnessStatus>
   setMousePassthrough(passthrough: boolean): void
   setMotionPaused(paused: boolean): void
   getWindowPosition(): Promise<DragStart>

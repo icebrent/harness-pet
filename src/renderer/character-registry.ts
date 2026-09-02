@@ -1,3 +1,10 @@
+import {
+  characterDefinitions,
+  DEFAULT_CHARACTER_ID,
+  getCharacterDefinition,
+  type CharacterId,
+} from '../shared/characters.js'
+
 export const SPRITE_NAMES = [
   'idle', 'happy', 'greet',
   'think', 'walk-1', 'walk-2',
@@ -7,8 +14,9 @@ export const SPRITE_NAMES = [
 export type SpriteName = typeof SPRITE_NAMES[number]
 
 export interface CharacterDefinition {
-  id: string
+  id: CharacterId
   displayName: string
+  persona: string
   sprites: Record<SpriteName, string>
 }
 
@@ -17,7 +25,7 @@ const spriteModules = import.meta.glob<string>(
   { eager: true, import: 'default', query: '?url' },
 )
 
-function spritesFor(characterId: string): Record<SpriteName, string> {
+function spritesFor(characterId: CharacterId): Record<SpriteName, string> {
   return Object.fromEntries(SPRITE_NAMES.map((name) => {
     const path = `../../assets/characters/${characterId}/sprites/${name}.png`
     const url = spriteModules[path]
@@ -26,15 +34,14 @@ function spritesFor(characterId: string): Record<SpriteName, string> {
   })) as Record<SpriteName, string>
 }
 
-export const DEFAULT_CHARACTER_ID = 'deepseek-blue'
+export { DEFAULT_CHARACTER_ID }
 
-export const characterRegistry: readonly CharacterDefinition[] = [
-  { id: 'deepseek-blue', displayName: 'deepseek', sprites: spritesFor('deepseek-blue') },
-  { id: 'claude-orange', displayName: 'claude', sprites: spritesFor('claude-orange') },
-  { id: 'gpt-white', displayName: 'gpt', sprites: spritesFor('gpt-white') },
-]
+export const characterRegistry: readonly CharacterDefinition[] = characterDefinitions.map(character => ({
+  ...character,
+  sprites: spritesFor(character.id),
+}))
 
 export function getCharacter(characterId: string): CharacterDefinition {
-  return characterRegistry.find(character => character.id === characterId)
-    ?? characterRegistry.find(character => character.id === DEFAULT_CHARACTER_ID)!
+  const safeId = getCharacterDefinition(characterId).id
+  return characterRegistry.find(character => character.id === safeId)!
 }

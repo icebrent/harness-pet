@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { HarnessAnswer, HarnessStatus } from '../shared/contracts.js'
+import {
+  DEFAULT_CHARACTER_ID,
+  getCharacterDefinition,
+  type CharacterId,
+} from '../shared/characters.js'
 import { createNodeHarnessRuntime } from './harness-worker-client.js'
 
 interface HarnessRunResult {
@@ -23,6 +28,8 @@ export class HarnessBridge {
   private sessionId = createSessionId()
   private activeRun = false
   private closed = false
+  private characterId: CharacterId = DEFAULT_CHARACTER_ID
+  private sessionBootstrapped = false
 
   constructor(
     private readonly cwd: string,
@@ -30,7 +37,12 @@ export class HarnessBridge {
   ) {}
 
   status(): HarnessStatus {
-    return { state: 'idle', sessionId: this.sessionId }
+    return {
+      state: 'idle',
+      sessionId: this.sessionId,
+      characterId: this.characterId,
+      sessionBootstrapped: this.sessionBootstrapped,
+    }
   }
 
   async ask(rawPrompt: string): Promise<HarnessAnswer> {
@@ -44,9 +56,12 @@ export class HarnessBridge {
     this.activeRun = true
     try {
       const runtime = await this.runtime()
-      const result = await runtime.run(prompt, { sessionId: this.sessionId })
+      const shouldBootstrap = !this.sessionBootstrapped
+      const effectivePrompt = shouldBootstrap ? this.bootstrapPrompt(prompt) : prompt
+      const result = await runtime.run(effectivePrompt, { sessionId: this.sessionId })
       const finalResponse = result.finalResponse.trim()
       if (!finalResponse) throw new Error('Harness completed without a final text response.')
+      if (shouldBootstrap) this.sessionBootstrapped = true
       return { sessionId: result.sessionId, finalResponse }
     } finally {
       this.activeRun = false
@@ -56,7 +71,16 @@ export class HarnessBridge {
   newConversation(): HarnessStatus {
     if (this.activeRun) throw new Error('Wait for the current Harness request to finish.')
     this.sessionId = createSessionId()
+    this.sessionBootstrapped = false
     return this.status()
+  }
+
+  selectCharacter(rawCharacterId: string): HarnessStatus {
+    if (this.activeRun) throw new Error('Wait for the current Harness request to finish.')
+    const characterId = getCharacterDefinition(rawCharacterId).id
+    if (characterId === this.characterId) return this.status()
+    this.characterId = characterId
+    return this.newConversation()
   }
 
   async close(): Promise<void> {
@@ -71,5 +95,10 @@ export class HarnessBridge {
   private runtime(): Promise<HarnessRuntime> {
     this.runtimePromise ??= this.createRuntime()
     return this.runtimePromise
+  }
+
+  private bootstrapPrompt(userMessage: string): string {
+    const character = getCharacterDefinition(this.characterId)
+    return `<character-persona>\n${character.persona}\n\n你当前在这个 conversation 中使用此角色身份和表达风格。\n在本 conversation 后续对话中保持一致。\n角色设定只影响表达、personality 和轻量行为偏好，不改变事实、任务语义、工具规则、安全规则或系统规则。\n</character-persona>\n\n<user-message>\n${userMessage}\n</user-message>`
   }
 }

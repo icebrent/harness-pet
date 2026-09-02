@@ -230,7 +230,9 @@ button, textarea, select { font: inherit; }
 .composer-actions button:hover { background: #dceaff; }
 #send { color: white; background: linear-gradient(135deg, var(--blue), var(--cyan)); }
 #send:hover { background: linear-gradient(135deg, #1768ee, #19b6f7); }
-#send:disabled { cursor: wait; opacity: .55; }
+#send:disabled,
+#new-conversation:disabled,
+#character-select:disabled { cursor: wait; opacity: .55; }
 #quit { margin-left: auto; }
 #status-label { font-size: 12px; color: #667ca2; }
 

@@ -14,11 +14,12 @@ describe('character registry', () => {
       'gpt-white',
     ])
     expect(characterRegistry.map(character => character.displayName)).toEqual([
-      'deepseek',
-      'claude',
-      'gpt',
+      'DeepSeek Blue',
+      'Claude Orange',
+      'GPT White',
     ])
     for (const character of characterRegistry) {
+      expect(character.persona.length).toBeGreaterThan(40)
       expect(Object.keys(character.sprites)).toEqual(SPRITE_NAMES)
       expect(Object.values(character.sprites).every(url => typeof url === 'string' && url.length > 0)).toBe(true)
     }
